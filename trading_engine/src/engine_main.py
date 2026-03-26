@@ -130,6 +130,9 @@ def run_live_engine():
     _already_squared_off = False
     sector_index_map = {r["sector"]: r["symbol"] for _, r in indices.iterrows()}
     
+    # Phase 8: Ignition Velocity Memory
+    prev_b1p_memo = {} # symbol -> last known B1 probability
+
     try:
         while True:
             t0 = time.time()
@@ -245,6 +248,12 @@ def run_live_engine():
 
                 b2c = inference.predict_brain2(p_long, p_short, b1d, latest_row)
 
+                # ── Step 2.5: VELOCITY CALCULATION (Phase 8) ─────────────
+                # Calculate the speed at which Brain 1 is converging.
+                last_b1p = prev_b1p_memo.get(sym, b1p)
+                delta_b1p = b1p - last_b1p
+                prev_b1p_memo[sym] = b1p
+
                 # ── Step 3: MEMORY UPDATE ─────────────────────────────────
                 exec_guard.dyn_thresh.record(sym, b2c)
 
@@ -263,7 +272,10 @@ def run_live_engine():
                     sector_dirs.get(st.sector, 0), portfolio_size, stock_losses, now,
                     dynamic_conv_thresh=dyn_conv,
                     river_win_ratio=river_wr,
-                    river_pullback_cleared=river_pb
+                    river_pullback_cleared=river_pb,
+                    volume_intensity=float(latest_row.get("volume_intensity_per_sec", 0)),
+                    cvd_divergence=float(latest_row.get("feature_cvd_divergence", 0)),
+                    delta_b1p=delta_b1p
                 )
 
                 # Position Sizing
