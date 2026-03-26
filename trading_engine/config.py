@@ -75,22 +75,31 @@ NATR_BRICK_PERCENT       = 0.0015 # [SHARED: Pipeline, Core]
 HEARTBEAT_INJECT_SEC      = 60.0 # [SHARED: Core]
 ORDER_LOCK_TIMEOUT_SEC    = 30 # [SHARED: Core]
 RENKO_HISTORY_LIMIT      = 100 # [SHARED: Core]
-STRUCTURAL_REVERSAL_BRICKS = 6 # [SHARED: Pipeline, Core]
+STRUCTURAL_REVERSAL_BRICKS = 7 # [SHARED: Pipeline, Core]
 SOFT_VETO_THRESHOLD       = 0.9 # [SHARED: Pipeline, Core]
 FEATURE_COLS = ["velocity", "momentum_acceleration", "feature_tib_zscore", "vwap_zscore", "feature_vpb_roc", "feature_cvd_divergence", "vpt_acceleration", "relative_strength", "fracdiff_price", "wick_pressure", "hurst", "consecutive_same_dir", "streak_exhaustion", "true_gap_pct", "regime_morning", "regime_midday", "regime_afternoon"] # [SHARED: Pipeline, Core]
 
 # Physics Math Extensions
+VELOCITY_LOOKBACK          = 10 # [SHARED: Pipeline, Core]
+VELOCITY_LONG_LOOKBACK     = 20 # [SHARED: Pipeline, Core]
 VELOCITY_MIN_DURATION      = 1.0
 VELOCITY_LONG_MIN_DURATION = 15.0
 MIN_BRICK_DURATION         = 15.0
 MAX_BRICK_DURATION_SECONDS = 300
+RS_ROLLING_WINDOW          = 50 # [SHARED: Pipeline, Core]
 RS_SMOOTHING_WINDOW        = 15
 WICK_REJECTION_THRESHOLD   = 0.6
+VWAP_WINDOW                = 20 # [SHARED: Pipeline, Core]
 VPT_ACCEL_LAG              = 2
+FRACDIFF_D                 = 0.4 # [SHARED: Pipeline, Core]
 FRACDIFF_WARMUP_BRICKS     = 30
 FRACDIFF_THRESHOLD         = 1e-4
+HURST_WINDOW               = 100 # [SHARED: Pipeline, Core]
 HURST_THRESHOLD            = 0.45
 TREND_THRESHOLD            = 0.45
+SQUEEZE_WINDOW             = 20 # [SHARED: Pipeline, Core]
+STREAK_EXHAUSTION_ONSET    = 5 # [SHARED: Pipeline, Core]
+STREAK_EXHAUSTION_SCALE    = 2.0 # [SHARED: Pipeline, Core]
 FEATURE_INCREMENTAL_ENABLED = True
 
 # ─────────────────────────────────────────────────────────────────────────────
