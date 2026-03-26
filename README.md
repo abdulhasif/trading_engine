@@ -10,22 +10,24 @@ Real-time execution heartbeat for the Advanced Trading Model. Connects to Upstox
 
 ## 🚀 Installation & Setup
 
+This project requires **Python 3.12** specifically.
+
 1. **Install Core Dependency**:
    Ensure `trading-core` is installed in your environment:
    ```bash
-   pip install -e ../trading_core
+   py -3.12 -m pip install -e ../trading_core
    ```
 
 2. **Install Project Requirements**:
    ```bash
-   pip install -r requirements.txt
+   py -3.12 -m pip install -r requirements.txt
    ```
 
 ## 🔄 Execution
 
 To start the live trading session:
 ```bash
-python src/engine_main.py
+py -3.12 -m trading_engine.src.engine_main
 ```
 
 ### Configuration
