@@ -50,12 +50,12 @@ def run_live_engine():
     logger.info("LIVE ENGINE - Starting (Modular Orchestrator)")
     logger.info("=" * 70)
 
-    # -- Sleep until 09:00 --------------------------------------------------
+    # -- Phase 1: SYSTEM_WAKE (Default 08:50) --------------------------------
     now = datetime.now()
-    target = now.replace(hour=9, minute=0, second=0, microsecond=0)
-    if now < target:
-        logger.info(f"Sleeping {(target-now).total_seconds():.0f}s until 09:00")
-        time.sleep((target - now).total_seconds())
+    wake_target = now.replace(hour=config.SYSTEM_WAKE_HOUR, minute=config.SYSTEM_WAKE_MINUTE, second=0, microsecond=0)
+    if now < wake_target:
+        logger.info(f"SYSTEM SLEEP: Waiting {(wake_target-now).total_seconds():.0f}s until {config.SYSTEM_WAKE_HOUR:02d}:{config.SYSTEM_WAKE_MINUTE:02d} Wake...")
+        time.sleep((wake_target - now).total_seconds())
 
     # -- Load universe & models ---------------------------------------------
     universe = pd.read_csv(config.UNIVERSE_CSV)
@@ -84,27 +84,38 @@ def run_live_engine():
     
     physics = PhysicsManager(universe, exec_guard)
 
-    # -- Warmup -------------------------------------------------------------
+    # -- Phase 2: CONNECTIVITY_CHECK (Default 09:00) -------------------------
+    ct = datetime.now().replace(hour=config.CONNECTIVITY_CHECK_HOUR, minute=config.CONNECTIVITY_CHECK_MINUTE, second=0, microsecond=0)
+    if datetime.now() < ct:
+        sleep_sec = (ct - datetime.now()).total_seconds()
+        logger.info(f"INITIALIZED. Sleeping {sleep_sec:.0f}s until {config.CONNECTIVITY_CHECK_HOUR:02d}:{config.CONNECTIVITY_CHECK_MINUTE:02d} AM Connectivity Check...")
+        time.sleep(sleep_sec)
+    
+    logger.info("CONNECTIVITY CHECK: Starting TickProvider WebSocket...")
+    tick_provider = TickProvider(list(physics.renko_states.keys()) + list(physics.sector_renko.keys()))
+    tick_provider.connect()
+
+    # -- Phase 3: WARMUP (Default 09:05) --------------------------------------
     wt = datetime.now().replace(hour=config.WARMUP_HOUR, minute=config.WARMUP_MINUTE, second=0, microsecond=0)
     if datetime.now() < wt:
         sleep_sec = (wt - datetime.now()).total_seconds()
-        logger.info(f"Sleeping {sleep_sec:.0f}s until {config.WARMUP_HOUR:02d}:{config.WARMUP_MINUTE:02d} AM Warmup...")
+        logger.info(f"CONNECTING. Sleeping {sleep_sec:.0f}s until {config.WARMUP_HOUR:02d}:{config.WARMUP_MINUTE:02d} AM Warmup...")
         time.sleep(sleep_sec)
     
+    logger.info("WARMUP: Priming Renko physics and risk buffers...")
     physics.warmup_brick_sizes()
     physics.initialize_states(stocks, indices)
     exec_guard.warm_up_all()
 
-    # -- Wait for Market Open ------------------------------------------------
+    # -- Phase 4: MARKET_OPEN (Default 09:15) ---------------------------------
     ot = datetime.now().replace(hour=config.MARKET_OPEN_HOUR, minute=config.MARKET_OPEN_MINUTE, second=0, microsecond=0)
     if datetime.now() < ot:
         sleep_sec = (ot - datetime.now()).total_seconds()
-        logger.info(f"Warmup complete. Sleeping {sleep_sec:.0f}s until {config.MARKET_OPEN_HOUR:02d}:{config.MARKET_OPEN_MINUTE:02d} AM Market Open...")
+        logger.info(f"WARMUP COMPLETE. Sleeping {sleep_sec:.0f}s until {config.MARKET_OPEN_HOUR:02d}:{config.MARKET_OPEN_MINUTE:02d} AM Market Open...")
         time.sleep(sleep_sec)
-    logger.info(f"{config.MARKET_OPEN_HOUR:02d}:{config.MARKET_OPEN_MINUTE:02d} - TRADING LOOP STARTED")
+    logger.info(f"MARKET OPEN: Starting TRADING LOOP at {config.MARKET_OPEN_HOUR:02d}:{config.MARKET_OPEN_MINUTE:02d}")
 
-    tick_provider = TickProvider(list(physics.renko_states.keys()) + list(physics.sector_renko.keys()))
-    tick_provider.connect()
+    # TickProvider moved to Connectivity Check phase
 
     last_write = 0.0
     _already_squared_off = False
@@ -188,13 +199,26 @@ def run_live_engine():
 
                 b2c = inference.predict_brain2(p_long, p_short, b1d, latest_row)
 
+                # Phase 5: Record b2c into per-symbol rolling memory (EVERY prediction, not just entries)
+                exec_guard.dyn_thresh.record(sym, b2c)
+
+                # Phase 5: Get the auto-calibrated conviction threshold for this symbol + direction
+                dyn_conv = exec_guard.dyn_thresh.get_dynamic_threshold(sym, signal_str) if signal_str != "FLAT" else None
+
+                # Phase 3: The River — Structural Trend Calculator
+                from trading_core.core.risk.execution_guard import calculate_river_state
+                river_wr, river_pb = calculate_river_state(exec_guard.buffers[sym]._buffer, signal_str) if signal_str != "FLAT" else (0.0, False)
+
                 # Strategy Gating
                 portfolio_size = len(execution.simulator.active_trades)
                 stock_losses = sum(1 for tr in execution.simulator.trade_history if tr.symbol == sym and tr.net_pnl < 0)
                 
                 gate_pass, gate_reason, gate_audit, sig = strategy.evaluate_entry(
                     sym, st.sector, signal_str, b1p, b2c, latest_row, st, 
-                    sector_dirs.get(st.sector, 0), portfolio_size, stock_losses, now
+                    sector_dirs.get(st.sector, 0), portfolio_size, stock_losses, now,
+                    dynamic_conv_thresh=dyn_conv,
+                    river_win_ratio=river_wr,               # Phase 3
+                    river_pullback_cleared=river_pb          # Phase 3
                 )
                 
                 # Position Sizing
@@ -205,15 +229,23 @@ def run_live_engine():
                 # -- EXIT GATES --
                 if sym in execution.simulator.active_trades:
                     order = execution.simulator.active_trades[sym]
-                    exit_reason = check_exit_conditions(order.side, order.entry_price, float(t["ltp"]), st.brick_size, b2c, p_long, p_short)
+                    # Phase 4: Retrieve trade_type (TREND/SCALP) from the lock for active positions
+                    t_type = exec_guard.entry_lock.get_trade_type(sym)
+                    v_int = float(latest_row.get("volume_intensity_per_sec", 0))
+
+                    exit_reason = strategy.check_exit(
+                        order, float(t["ltp"]), st, b2c, p_long, p_short, 
+                        trade_type=t_type, vol_intensity=v_int
+                    )
+                    
                     if exit_reason:
                         execution.close_position(sym, float(t["ltp"]), now, exit_reason)
-                        logger.info(f"[Engine->Sim] EXIT {sym} @ {float(t['ltp']):.2f} | reason={exit_reason}")
-                        log_brick_event(ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]), action="EXIT", reason=exit_reason, **latest_row)
+                        logger.info(f"[Engine->Sim] EXIT {sym} @ {float(t['ltp']):.2f} | type={t_type} | reason={exit_reason}")
+                        log_brick_event(ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]), action="EXIT", reason=exit_reason, trade_type=t_type, **latest_row)
                     continue
 
                 # -- ENTRY GATES --
-                log_brick_event(ts=now, symbol=sym, sector=st.sector, action="ENTRY" if gate_pass else "SKIP", reason=gate_reason if not gate_pass else "ALL_PASS", **latest_row)
+                log_brick_event(ts=now, symbol=sym, sector=st.sector, action="ENTRY" if gate_pass else "SKIP", reason=gate_reason if not gate_pass else "ALL_PASS", trade_type=sig.get("trade_type", "NORMAL"), **latest_row)
 
                 if gate_pass and not strategy.check_duplicate_minute(sym, now):
                     executable_signals.append(sig)
@@ -222,7 +254,8 @@ def run_live_engine():
             if executable_signals:
                 executable_signals.sort(key=lambda x: x["score"], reverse=True)
                 for sig in executable_signals:
-                    if is_trading_active(): execution.execute_trade(sig)
+                    # Phase 3/4: Pass the specific trade_type (TREND/SCALP) to the execution engine
+                    if is_trading_active(): execution.execute_trade(sig) # Note: execute_trade should ideally call entry_lock.try_enter(sym, sig['trade_type']) internally
 
             # State Update
             top = risk_fortress.rank_signals(all_signals)
