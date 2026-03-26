@@ -1,0 +1,10 @@
+-e ../trading_core
+numpy==2.4.2
+pandas==2.3.3
+upstox-python-sdk==2.19.0
+websocket-client==1.9.0
+websockets==16.0
+requests==2.32.5
+python-dotenv==1.2.1
+pytz==2025.2
+python-dateutil==2.9.0.post0
