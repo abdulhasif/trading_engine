@@ -50,12 +50,12 @@ def run_live_engine():
     logger.info("LIVE ENGINE - Starting (Modular Orchestrator)")
     logger.info("=" * 70)
 
-    # -- Sleep until 09:00 --------------------------------------------------
+    # -- Phase 1: SYSTEM_WAKE (Default 08:50) --------------------------------
     now = datetime.now()
-    target = now.replace(hour=9, minute=0, second=0, microsecond=0)
-    if now < target:
-        logger.info(f"Sleeping {(target-now).total_seconds():.0f}s until 09:00")
-        time.sleep((target - now).total_seconds())
+    wake_target = now.replace(hour=config.SYSTEM_WAKE_HOUR, minute=config.SYSTEM_WAKE_MINUTE, second=0, microsecond=0)
+    if now < wake_target:
+        logger.info(f"SYSTEM SLEEP: Waiting {(wake_target-now).total_seconds():.0f}s until {config.SYSTEM_WAKE_HOUR:02d}:{config.SYSTEM_WAKE_MINUTE:02d} Wake...")
+        time.sleep((wake_target - now).total_seconds())
 
     # -- Load universe & models ---------------------------------------------
     universe = pd.read_csv(config.UNIVERSE_CSV)
@@ -84,27 +84,38 @@ def run_live_engine():
     
     physics = PhysicsManager(universe, exec_guard)
 
-    # -- Warmup -------------------------------------------------------------
+    # -- Phase 2: CONNECTIVITY_CHECK (Default 09:00) -------------------------
+    ct = datetime.now().replace(hour=config.CONNECTIVITY_CHECK_HOUR, minute=config.CONNECTIVITY_CHECK_MINUTE, second=0, microsecond=0)
+    if datetime.now() < ct:
+        sleep_sec = (ct - datetime.now()).total_seconds()
+        logger.info(f"INITIALIZED. Sleeping {sleep_sec:.0f}s until {config.CONNECTIVITY_CHECK_HOUR:02d}:{config.CONNECTIVITY_CHECK_MINUTE:02d} AM Connectivity Check...")
+        time.sleep(sleep_sec)
+    
+    logger.info("CONNECTIVITY CHECK: Starting TickProvider WebSocket...")
+    tick_provider = TickProvider(list(physics.renko_states.keys()) + list(physics.sector_renko.keys()))
+    tick_provider.connect()
+
+    # -- Phase 3: WARMUP (Default 09:05) --------------------------------------
     wt = datetime.now().replace(hour=config.WARMUP_HOUR, minute=config.WARMUP_MINUTE, second=0, microsecond=0)
     if datetime.now() < wt:
         sleep_sec = (wt - datetime.now()).total_seconds()
-        logger.info(f"Sleeping {sleep_sec:.0f}s until {config.WARMUP_HOUR:02d}:{config.WARMUP_MINUTE:02d} AM Warmup...")
+        logger.info(f"CONNECTING. Sleeping {sleep_sec:.0f}s until {config.WARMUP_HOUR:02d}:{config.WARMUP_MINUTE:02d} AM Warmup...")
         time.sleep(sleep_sec)
     
+    logger.info("WARMUP: Priming Renko physics and risk buffers...")
     physics.warmup_brick_sizes()
     physics.initialize_states(stocks, indices)
     exec_guard.warm_up_all()
 
-    # -- Wait for Market Open ------------------------------------------------
+    # -- Phase 4: MARKET_OPEN (Default 09:15) ---------------------------------
     ot = datetime.now().replace(hour=config.MARKET_OPEN_HOUR, minute=config.MARKET_OPEN_MINUTE, second=0, microsecond=0)
     if datetime.now() < ot:
         sleep_sec = (ot - datetime.now()).total_seconds()
-        logger.info(f"Warmup complete. Sleeping {sleep_sec:.0f}s until {config.MARKET_OPEN_HOUR:02d}:{config.MARKET_OPEN_MINUTE:02d} AM Market Open...")
+        logger.info(f"WARMUP COMPLETE. Sleeping {sleep_sec:.0f}s until {config.MARKET_OPEN_HOUR:02d}:{config.MARKET_OPEN_MINUTE:02d} AM Market Open...")
         time.sleep(sleep_sec)
-    logger.info(f"{config.MARKET_OPEN_HOUR:02d}:{config.MARKET_OPEN_MINUTE:02d} - TRADING LOOP STARTED")
+    logger.info(f"MARKET OPEN: Starting TRADING LOOP at {config.MARKET_OPEN_HOUR:02d}:{config.MARKET_OPEN_MINUTE:02d}")
 
-    tick_provider = TickProvider(list(physics.renko_states.keys()) + list(physics.sector_renko.keys()))
-    tick_provider.connect()
+    # TickProvider moved to Connectivity Check phase
 
     last_write = 0.0
     _already_squared_off = False

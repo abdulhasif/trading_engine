@@ -4,13 +4,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 print("1. Testing imports...")
-from trading_engine.src.upstox_simulator import UpstoxSimulator, TradeState
-from trading_engine.src.engine import passes_soft_veto
-from trading_engine.src.tick_provider import TickProvider
+from trading_engine.src.execution.upstox_simulator import UpstoxSimulator, TradeState
+from trading_engine.src.strategy.strategy_manager import StrategyManager
+from trading_engine.src.data.tick_provider import TickProvider
 from trading_core.core.physics.renko import LiveRenkoState
 from trading_core.core.features import compute_features_live
 from trading_core.core.risk.risk_fortress import RiskFortress
-import config
+import trading_engine.config as config
 print("   ALL IMPORTS OK")
 
 print("\n2. Testing UpstoxSimulator Initialization...")
@@ -48,11 +48,12 @@ huge_order = sim2.place_order("RELIANCE", "BUY", 40, 2500.00, 2480.0, now)
 print(f"   Huge order (over limit) state: {huge_order.state} (Expect REJECTED)")
 
 print("\n5. Testing engine soft veto logic...")
-print(f"   LONG + rel_str=-0.8: {passes_soft_veto('LONG', -0.8)} (Expect False if THRESH=0.5)")
-print(f"   LONG + rel_str=+0.3: {passes_soft_veto('LONG', 0.3)} (Expect True)")
+rf = RiskFortress()
+sm = StrategyManager(rf)
+print(f"   LONG + rel_str=-0.8: {sm._passes_soft_veto('LONG', -0.8)} (Expect False if THRESH=0.5)")
+print(f"   LONG + rel_str=+0.3: {sm._passes_soft_veto('LONG', 0.3)} (Expect True)")
 
 print("\n6. Testing RiskFortress Scoring...")
-rf = RiskFortress()
 score = rf.score_signal(0.72, 80.0, 1, 1)
 print(f"   Score (Aligned): {score:.2f}")
 

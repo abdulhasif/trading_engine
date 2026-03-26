@@ -20,16 +20,19 @@ TRADE_CONTROL_FILE = LOGS_DIR / "trade_control.json"
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. UPSTOX API & CONNECTION SETTINGS
 # ─────────────────────────────────────────────────────────────────────────────
-UPSTOX_ACCESS_TOKEN   = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI2R0I1OTUiLCJqdGkiOiI2OWMzNTBhYjk4MGMyODExZDNlOTgxYWEiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc3NDQwNzg1MSwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzc0NDc2MDAwfQ.dWqoTa0yt0HIipi3Z4PuhznpNpzfoWBI3fcPN1AbiG0" # [SHARED: Pipeline]
+UPSTOX_ACCESS_TOKEN   = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI2R0I1OTUiLCJqdGkiOiI2OWM1NzE2YWQ5MmY5ZTYyZjgxODAzMTciLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc3NDU0NzMwNiwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzc0NTYyNDAwfQ.hEURRWe828CAdo3AiKcoxn3l06RpNDjC6Ba5mVKf0nI" # [SHARED: Pipeline]
 TICK_RECONNECT_DELAYS   = [5, 10, 20, 40, 60]
 TICK_FLUSH_INTERVAL     = 1.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. MARKET HOURS & TRADING WINDOWS (IST)
 # ─────────────────────────────────────────────────────────────────────────────
-WARMUP_HOUR            = 9
-MARKET_OPEN_HOUR       = 9;   MARKET_OPEN_MINUTE       = 15 # [SHARED: Pipeline, Core]
-SYSTEM_SHUTDOWN_HOUR   = 15
+SYSTEM_WAKE_HOUR       = 8;   SYSTEM_WAKE_MINUTE       = 50
+CONNECTIVITY_CHECK_HOUR = 9;   CONNECTIVITY_CHECK_MINUTE = 0
+WARMUP_HOUR            = 9;   WARMUP_MINUTE            = 5
+MARKET_OPEN_HOUR       = 9;   MARKET_OPEN_MINUTE       = 15
+MARKET_CLOSE_HOUR      = 15;  MARKET_CLOSE_MINUTE      = 30
+SYSTEM_SHUTDOWN_HOUR   = 15;  SYSTEM_SHUTDOWN_MINUTE   = 35
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. ML MODEL CONSTANTS
@@ -132,6 +135,9 @@ T1_SLIPPAGE_PCT      = 0.0005 # [SHARED: Pipeline]
 DASHBOARD_REFRESH_SEC = 30
 REGIME_WINDOW         = 40 # [SHARED: API]
 
+# Lifecycle timings moved to Section 3
+
+
 def to_naive_ist(ts):
     import pandas as pd
     if ts is None: return None
@@ -141,4 +147,5 @@ def to_naive_ist(ts):
     ts_scalar = pd.to_datetime(ts)
     if ts_scalar.tz is None: return ts_scalar
     return ts_scalar.tz_convert("Asia/Kolkata").tz_localize(None)
+
 
