@@ -1,14 +1,7 @@
 from trading_core.core.config.base_config import *
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. UPSTOX API & CONNECTION SETTINGS
-# ─────────────────────────────────────────────────────────────────────────────
-UPSTOX_API_BASE       = "https://api.upstox.com/v3"
-UPSTOX_WS_AUTHORIZE    = "https://api.upstox.com/v3/feed/market-data-feed/authorize"
-UPSTOX_ACCESS_TOKEN   = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI2R0I1OTUiLCJqdGkiOiI2OWMzNTBhYjk4MGMyODExZDNlOTgxYWEiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc3NDQwNzg1MSwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzc0NDc2MDAwfQ.dWqoTa0yt0HIipi3Z4PuhznpNpzfoWBI3fcPN1AbiG0"
+# (Inherited from base_config: UPSTOX_API_BASE, UPSTOX_ACCESS_TOKEN, API_DELAY_BETWEEN_CALLS)
 
-API_MAX_WORKERS         = 4
-API_DELAY_BETWEEN_CALLS = 0.35
 TICK_RECONNECT_DELAYS   = [5, 10, 20, 40, 60]
 TICK_FLUSH_INTERVAL     = 1.0
 

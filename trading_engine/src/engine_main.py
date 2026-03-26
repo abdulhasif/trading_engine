@@ -8,6 +8,12 @@ Run:  python -m src.live.engine
 """
 
 import sys
+if sys.version_info < (3, 12) or sys.version_info >= (3, 13):
+    print("ERROR: This application requires Python 3.12 specifically.")
+    print(f"Current version: {sys.version}")
+    print("Please run using: py -3.12 src/engine_main.py")
+    sys.exit(1)
+
 import os
 os.environ["KERAS_BACKEND"] = "torch"
 import json
@@ -26,9 +32,10 @@ from trading_core.core.physics.renko import LiveRenkoState
 from trading_core.core.features import compute_features_live
 from trading_core.core.risk.risk_fortress import RiskFortress
 from trading_engine.src.tick_provider import TickProvider
-from trading_engine.src.execution_guard import LiveExecutionGuard, SyncPendingOrderGuard
+from trading_core.core.risk.execution_guard import LiveExecutionGuard, SyncPendingOrderGuard
 from trading_engine.src.upstox_simulator import UpstoxSimulator
-from trading_api.src.api.server import compute_market_regime, _get_sentiment_feed
+from trading_api.src.services.market_service import compute_market_regime
+from trading_api.src.services.news_service import get_sentiment_feed as _get_sentiment_feed
 from trading_core.core.physics.quant_fixes import IsotonicCalibrationWrapper
 from trading_core.core.risk.strategy import check_entry_gates, check_exit_conditions
 from trading_engine.src.daily_logger import log_brick_event
