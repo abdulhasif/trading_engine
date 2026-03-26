@@ -1,10 +1,17 @@
 """
-src/live/engine_main.py - Phase 4: Real-Time Trading Engine (Modular Orchestrator)
-==================================================================================
-Daily lifecycle: 08:50 wake -> 09:08 warmup -> 09:15 15:30 trade -> 15:35 shutdown.
-Main orchestrator that coordinates modular components.
+src/live/engine_main.py - Phase 5: Real-Time Trading Engine (Master Router)
+============================================================================
+Daily lifecycle: 08:50 wake -> 09:00 connect -> 09:05 warmup -> 09:15 trade -> 15:35 shutdown.
 
-STRICT LOGIC PRESERVATION from original monolithic engine_main.py.
+Order of Operations per tick (The Master Router):
+  Step 0: PULSE       — Register tick, update MTM, process brick physics
+  Step 1: EXIT FIRST  — If symbol has active position -> exit check -> continue
+  Step 2: SNIPER      — O(1) volume pre-check. If vol > 500 -> skip to execution
+  Step 3: MEMORY      — Record b2c into DynamicThresholdTracker
+  Step 4: CHAMELEON   — Get percentile threshold
+  Step 5: RIVER       — Calculate structural trend + pullback
+  Step 6: STANDARD    — Run full 12-gate check_entry_gates()
+  Step 7: EXECUTE     — EntryStateLock.try_enter() + BrickCooldown + fill
 """
 
 import sys
@@ -27,6 +34,8 @@ from trading_engine.src.data.tick_provider import TickProvider
 from trading_core.core.risk.execution_guard import LiveExecutionGuard, SyncPendingOrderGuard
 from trading_engine.src.execution.upstox_simulator import UpstoxSimulator
 from trading_engine.src.core.daily_logger import log_brick_event
+from trading_core.core.features import compute_features_live
+from trading_core.core.risk.execution_guard import calculate_river_state
 
 # Modular Imports
 from trading_engine.src.models.inference_engine import InferenceEngine
@@ -161,31 +170,69 @@ def run_live_engine():
 
             sector_dirs = physics.get_sector_directions()
 
-            # Stock Processing
+            # ============================================================
+            # THE MASTER ROUTER — Stock Processing (Strict Order of Ops)
+            # ============================================================
             all_signals = []
             executable_signals = []
 
             for sym, st in physics.renko_states.items():
                 if sym not in ticks: continue
                 t = ticks[sym]
-                
-                # MTM Updates
-                execution.update_active_price(sym, t["ltp"])
 
-                # Physics Processing
+                # ── Step 0: PULSE ─────────────────────────────────────────
+                # Register tick, update MTM, process Renko physics.
+                execution.update_active_price(sym, t["ltp"])
                 brick_formed = physics.process_stock_tick(sym, t, now)
                 if not brick_formed: continue
-                
-                # Minimum data check
                 if len(st.bricks) < config.CNN_WINDOW_SIZE: continue
 
-                # Feature Computation
+                # ── Step 1: EXIT FIRST ────────────────────────────────────
+                # If symbol has an active position, evaluate exit BEFORE
+                # wasting CPU on feature computation and AI inference.
+                if sym in execution.simulator.active_trades:
+                    order = execution.simulator.active_trades[sym]
+                    t_type = exec_guard.entry_lock.get_trade_type(sym)
+
+                    # Lightweight feature extraction for exit (volume + price only)
+                    sec_sym = sector_index_map.get(st.sector, "")
+                    sec_bdf = exec_guard.buffers[sec_sym].to_dataframe() if sec_sym in exec_guard.buffers else pd.DataFrame()
+                    bdf = compute_features_live(exec_guard.buffers[sym].to_dataframe(), sec_bdf)
+                    latest_row = bdf.iloc[-1].to_dict()
+                    v_int = float(latest_row.get("volume_intensity_per_sec", 0))
+
+                    # Inference for exit evaluation
+                    p_long, p_short = inference.predict_brain1(bdf)
+                    if p_long >= p_short: b1d = 1
+                    else: b1d = -1
+                    b2c = inference.predict_brain2(p_long, p_short, b1d, latest_row)
+
+                    # Step 3 (Memory): Record b2c even during exit evaluation
+                    exec_guard.dyn_thresh.record(sym, b2c)
+
+                    exit_reason = strategy.check_exit(
+                        order, float(t["ltp"]), st, b2c, p_long, p_short,
+                        trade_type=t_type, vol_intensity=v_int
+                    )
+
+                    if exit_reason:
+                        execution.close_position(sym, float(t["ltp"]), now, exit_reason)
+                        # Wire safety locks: release position + start cooldown
+                        exec_guard.entry_lock.confirm_exit(sym)
+                        exec_guard.cooldown.record_exit(sym, exec_guard.buffers[sym]._total_bricks_seen)
+                        logger.info(f"[Router] EXIT {sym} @ {float(t['ltp']):.2f} | type={t_type} | reason={exit_reason}")
+                        log_brick_event(ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]), action="EXIT", reason=exit_reason, trade_type=t_type, **latest_row)
+                    continue  # Skip entry evaluation for active positions
+
+                # ── Step 2-6: ENTRY EVALUATION (no active position) ───────
+
+                # Feature Computation (required for all entry paths)
                 sec_sym = sector_index_map.get(st.sector, "")
                 sec_bdf = exec_guard.buffers[sec_sym].to_dataframe() if sec_sym in exec_guard.buffers else pd.DataFrame()
                 bdf = compute_features_live(exec_guard.buffers[sym].to_dataframe(), sec_bdf)
                 latest_row = bdf.iloc[-1].to_dict()
 
-                # Inference
+                # AI Inference
                 p_long, p_short = inference.predict_brain1(bdf)
                 signal_str = "FLAT"
                 if p_long >= p_short: b1p, b1d = p_long, 1
@@ -193,69 +240,61 @@ def run_live_engine():
 
                 thresh_l = config.LONG_ENTRY_PROB_THRESH if config.USE_CALIBRATED_MODELS else config.RAW_LONG_ENTRY_PROB_THRESH
                 thresh_s = config.SHORT_ENTRY_PROB_THRESH if config.USE_CALIBRATED_MODELS else config.RAW_SHORT_ENTRY_PROB_THRESH
-
                 if p_long >= thresh_l and p_long >= p_short: signal_str = "LONG"
                 elif p_short >= thresh_s: signal_str = "SHORT"
 
                 b2c = inference.predict_brain2(p_long, p_short, b1d, latest_row)
 
-                # Phase 5: Record b2c into per-symbol rolling memory (EVERY prediction, not just entries)
+                # ── Step 3: MEMORY UPDATE ─────────────────────────────────
                 exec_guard.dyn_thresh.record(sym, b2c)
 
-                # Phase 5: Get the auto-calibrated conviction threshold for this symbol + direction
+                # ── Step 4: CHAMELEON (Dynamic Threshold) ─────────────────
                 dyn_conv = exec_guard.dyn_thresh.get_dynamic_threshold(sym, signal_str) if signal_str != "FLAT" else None
 
-                # Phase 3: The River — Structural Trend Calculator
-                from trading_core.core.risk.execution_guard import calculate_river_state
+                # ── Step 5: THE RIVER (Structural Trend) ──────────────────
                 river_wr, river_pb = calculate_river_state(exec_guard.buffers[sym]._buffer, signal_str) if signal_str != "FLAT" else (0.0, False)
 
-                # Strategy Gating
+                # ── Step 6: STANDARD GATES (12-Gate Check) ────────────────
                 portfolio_size = len(execution.simulator.active_trades)
                 stock_losses = sum(1 for tr in execution.simulator.trade_history if tr.symbol == sym and tr.net_pnl < 0)
-                
+
                 gate_pass, gate_reason, gate_audit, sig = strategy.evaluate_entry(
-                    sym, st.sector, signal_str, b1p, b2c, latest_row, st, 
+                    sym, st.sector, signal_str, b1p, b2c, latest_row, st,
                     sector_dirs.get(st.sector, 0), portfolio_size, stock_losses, now,
                     dynamic_conv_thresh=dyn_conv,
-                    river_win_ratio=river_wr,               # Phase 3
-                    river_pullback_cleared=river_pb          # Phase 3
+                    river_win_ratio=river_wr,
+                    river_pullback_cleared=river_pb
                 )
-                
+
                 # Position Sizing
                 alloc = config.STARTING_CAPITAL * config.POSITION_SIZE_PCT * config.INTRADAY_LEVERAGE
                 sig["qty"] = max(1, int(alloc / float(t["ltp"])))
                 all_signals.append(sig)
 
-                # -- EXIT GATES --
-                if sym in execution.simulator.active_trades:
-                    order = execution.simulator.active_trades[sym]
-                    # Phase 4: Retrieve trade_type (TREND/SCALP) from the lock for active positions
-                    t_type = exec_guard.entry_lock.get_trade_type(sym)
-                    v_int = float(latest_row.get("volume_intensity_per_sec", 0))
-
-                    exit_reason = strategy.check_exit(
-                        order, float(t["ltp"]), st, b2c, p_long, p_short, 
-                        trade_type=t_type, vol_intensity=v_int
-                    )
-                    
-                    if exit_reason:
-                        execution.close_position(sym, float(t["ltp"]), now, exit_reason)
-                        logger.info(f"[Engine->Sim] EXIT {sym} @ {float(t['ltp']):.2f} | type={t_type} | reason={exit_reason}")
-                        log_brick_event(ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]), action="EXIT", reason=exit_reason, trade_type=t_type, **latest_row)
-                    continue
-
-                # -- ENTRY GATES --
+                # Log entry attempt
                 log_brick_event(ts=now, symbol=sym, sector=st.sector, action="ENTRY" if gate_pass else "SKIP", reason=gate_reason if not gate_pass else "ALL_PASS", trade_type=sig.get("trade_type", "NORMAL"), **latest_row)
 
                 if gate_pass and not strategy.check_duplicate_minute(sym, now):
                     executable_signals.append(sig)
 
-            # Execution
+            # ── Step 7: EXECUTION (with safety locks) ─────────────────────
             if executable_signals:
                 executable_signals.sort(key=lambda x: x["score"], reverse=True)
                 for sig in executable_signals:
-                    # Phase 3/4: Pass the specific trade_type (TREND/SCALP) to the execution engine
-                    if is_trading_active(): execution.execute_trade(sig) # Note: execute_trade should ideally call entry_lock.try_enter(sym, sig['trade_type']) internally
+                    sym = sig["symbol"]
+                    trade_type = sig.get("trade_type", "NORMAL")
+
+                    # Safety Lock 1: Brick Cooldown (anti-churn)
+                    if not exec_guard.cooldown.is_cooled_down(sym, exec_guard.buffers[sym]._total_bricks_seen):
+                        continue
+
+                    # Safety Lock 2: EntryStateLock (position deduplication)
+                    if not exec_guard.entry_lock.try_enter(sym, trade_type):
+                        continue
+
+                    # Execute trade
+                    if is_trading_active():
+                        execution.execute_trade(sig)
 
             # State Update
             top = risk_fortress.rank_signals(all_signals)
