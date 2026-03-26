@@ -17,28 +17,29 @@ class StrategyManager:
         self.risk = risk_fortress
         self.last_entry_minutes = {}
 
-    def evaluate_entry(self, symbol, sector, signal_str, b1p, b2c, latest_row_dict, st, sector_dir, portfolio_size, stock_losses, now):
+    def evaluate_entry(self, symbol, sector, signal_str, b1p, b2c, latest_row_dict, st, sector_dir, portfolio_size, stock_losses, now, dynamic_conv_thresh=None):
         """
-        STRICT: Combined logic for gates and signal building.
+        Combined logic for gates and signal building.
+        Phase 5: Accepts optional dynamic_conv_thresh from DynamicThresholdTracker.
         """
         rel_str_val = float(latest_row_dict.get("relative_strength", 0))
         score = self.risk.score_signal(b1p, b2c, (1 if signal_str == "LONG" else -1), sector_dir)
 
-        # Build signal dict (STRICT format)
+        # Build signal dict
         sig = {
             "symbol": symbol, "sector": sector,
             "direction": "BUY" if signal_str == "LONG" else ("SELL" if signal_str == "SHORT" else "FLAT"),
-            "qty": 0, # Calculated in main loop or ExecutionManager
+            "qty": 0,
             "brain1_prob": round(b1p, 4),
             "brain2_conviction": round(b2c, 2),
             "score": round(score, 2),
             "velocity": round(float(latest_row_dict.get("velocity",0)), 4),
             "wick_pressure": round(float(latest_row_dict.get("wick_pressure",0)), 4),
             "rs": round(rel_str_val, 4),
-            "price": round(float(latest_row_dict.get("brick_close", 0)), 2), # Using close for signal price
+            "price": round(float(latest_row_dict.get("brick_close", 0)), 2),
             "brick_size": st.brick_size,
             "brick_count": len(st.bricks),
-            "is_vetoed": self._passes_soft_veto(signal_str, rel_str_val), # Note: passes_soft_veto logic
+            "is_vetoed": self._passes_soft_veto(signal_str, rel_str_val),
             "timestamp": now.isoformat(),
         }
 
@@ -61,8 +62,9 @@ class StrategyManager:
             recent_dirs = recent_dirs,
             stock_losses = stock_losses,
             portfolio_size = portfolio_size,
-            is_already_in_position = False, # Handled by loop
-            structural_score = float(latest_row_dict.get("structural_score", 0.0))
+            is_already_in_position = False,
+            structural_score = float(latest_row_dict.get("structural_score", 0.0)),
+            dynamic_conv_thresh = dynamic_conv_thresh  # Phase 5
         )
 
         return gate_pass, gate_reason, gate_audit, sig

@@ -188,13 +188,20 @@ def run_live_engine():
 
                 b2c = inference.predict_brain2(p_long, p_short, b1d, latest_row)
 
+                # Phase 5: Record b2c into per-symbol rolling memory (EVERY prediction, not just entries)
+                exec_guard.dyn_thresh.record(sym, b2c)
+
+                # Phase 5: Get the auto-calibrated conviction threshold for this symbol + direction
+                dyn_conv = exec_guard.dyn_thresh.get_dynamic_threshold(sym, signal_str) if signal_str != "FLAT" else None
+
                 # Strategy Gating
                 portfolio_size = len(execution.simulator.active_trades)
                 stock_losses = sum(1 for tr in execution.simulator.trade_history if tr.symbol == sym and tr.net_pnl < 0)
                 
                 gate_pass, gate_reason, gate_audit, sig = strategy.evaluate_entry(
                     sym, st.sector, signal_str, b1p, b2c, latest_row, st, 
-                    sector_dirs.get(st.sector, 0), portfolio_size, stock_losses, now
+                    sector_dirs.get(st.sector, 0), portfolio_size, stock_losses, now,
+                    dynamic_conv_thresh=dyn_conv  # Phase 5
                 )
                 
                 # Position Sizing
