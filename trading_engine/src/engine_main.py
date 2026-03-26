@@ -716,8 +716,9 @@ def run_live_engine():
                 last_write = time.time()
 
             elapsed = time.time() - t0
-            if elapsed < config.HEARTBEAT_INJECT_SEC / 100: # Adaptive sleep
-                time.sleep(max(0.01, config.HEARTBEAT_INJECT_SEC / 100 - elapsed))
+            # ULTRA-LOW LATENCY FIX: Limit loop to ~100Hz (10ms) instead of 600ms throttle.
+            # This allows the engine to react to ticks almost instantly.
+            time.sleep(max(0.001, 0.01 - elapsed))
 
     except KeyboardInterrupt:
         logger.info("Stopped by user")
