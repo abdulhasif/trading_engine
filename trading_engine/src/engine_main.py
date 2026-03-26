@@ -218,15 +218,23 @@ def run_live_engine():
                 # -- EXIT GATES --
                 if sym in execution.simulator.active_trades:
                     order = execution.simulator.active_trades[sym]
-                    exit_reason = check_exit_conditions(order.side, order.entry_price, float(t["ltp"]), st.brick_size, b2c, p_long, p_short)
+                    # Phase 4: Retrieve trade_type (TREND/SCALP) from the lock for active positions
+                    t_type = exec_guard.entry_lock.get_trade_type(sym)
+                    v_int = float(latest_row.get("volume_intensity_per_sec", 0))
+
+                    exit_reason = strategy.check_exit(
+                        order, float(t["ltp"]), st, b2c, p_long, p_short, 
+                        trade_type=t_type, vol_intensity=v_int
+                    )
+                    
                     if exit_reason:
                         execution.close_position(sym, float(t["ltp"]), now, exit_reason)
-                        logger.info(f"[Engine->Sim] EXIT {sym} @ {float(t['ltp']):.2f} | reason={exit_reason}")
-                        log_brick_event(ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]), action="EXIT", reason=exit_reason, **latest_row)
+                        logger.info(f"[Engine->Sim] EXIT {sym} @ {float(t['ltp']):.2f} | type={t_type} | reason={exit_reason}")
+                        log_brick_event(ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]), action="EXIT", reason=exit_reason, trade_type=t_type, **latest_row)
                     continue
 
                 # -- ENTRY GATES --
-                log_brick_event(ts=now, symbol=sym, sector=st.sector, action="ENTRY" if gate_pass else "SKIP", reason=gate_reason if not gate_pass else "ALL_PASS", **latest_row)
+                log_brick_event(ts=now, symbol=sym, sector=st.sector, action="ENTRY" if gate_pass else "SKIP", reason=gate_reason if not gate_pass else "ALL_PASS", trade_type=sig.get("trade_type", "NORMAL"), **latest_row)
 
                 if gate_pass and not strategy.check_duplicate_minute(sym, now):
                     executable_signals.append(sig)
@@ -235,7 +243,8 @@ def run_live_engine():
             if executable_signals:
                 executable_signals.sort(key=lambda x: x["score"], reverse=True)
                 for sig in executable_signals:
-                    if is_trading_active(): execution.execute_trade(sig)
+                    # Phase 3/4: Pass the specific trade_type (TREND/SCALP) to the execution engine
+                    if is_trading_active(): execution.execute_trade(sig) # Note: execute_trade should ideally call entry_lock.try_enter(sym, sig['trade_type']) internally
 
             # State Update
             top = risk_fortress.rank_signals(all_signals)

@@ -22,8 +22,11 @@ class StrategyManager:
         Combined logic for gates and signal building.
         Phase 5: dynamic_conv_thresh from DynamicThresholdTracker.
         Phase 3: river_win_ratio + river_pullback_cleared from The River.
+        Phase 4: volume_intensity + cvd_divergence from The Sniper.
         """
         rel_str_val = float(latest_row_dict.get("relative_strength", 0))
+        vol_intensity = float(latest_row_dict.get("volume_intensity_per_sec", 0))
+        cvd_div = float(latest_row_dict.get("feature_cvd_divergence", 0))
         score = self.risk.score_signal(b1p, b2c, (1 if signal_str == "LONG" else -1), sector_dir)
 
         # Build signal dict
@@ -67,13 +70,22 @@ class StrategyManager:
             structural_score = float(latest_row_dict.get("structural_score", 0.0)),
             dynamic_conv_thresh = dynamic_conv_thresh,
             river_win_ratio = river_win_ratio,               # Phase 3
-            river_pullback_cleared = river_pullback_cleared   # Phase 3
+            river_pullback_cleared = river_pullback_cleared, # Phase 3
+            volume_intensity = vol_intensity,                # Phase 4
+            cvd_divergence = cvd_div                         # Phase 4
         )
 
-        # Phase 3: Propagate trade_type from gate audit into signal dict
+        # Phase 3/4: Propagate trade_type from gate audit into signal dict
         sig["trade_type"] = gate_audit.get("trade_type", "NORMAL")
 
         return gate_pass, gate_reason, gate_audit, sig
+
+    def check_exit(self, order, current_price, st, b2c, p_long, p_short, trade_type="NORMAL", vol_intensity=0.0):
+        """Phase 4: Accepts trade_type and volume_intensity for sniper exits."""
+        return check_exit_conditions(
+            order.side, order.entry_price, current_price, st.brick_size, 
+            b2c, p_long, p_short, trade_type, vol_intensity
+        )
 
     def _passes_soft_veto(self, signal, rel_strength):
         """STRICT: Verbatim from engine_main.py"""
