@@ -66,6 +66,17 @@ MIN_BRICKS_TODAY       = 0 # [SHARED: Pipeline]
 STREAK_LIMIT           = 7
 BRICK_COOLDOWN         = 3
 
+# Phase 4: Sniper (Scalp) Settings
+SCALP_IGNITION_INTENSITY    = 500.0
+SCALP_VACUUM_INTENSITY      = 50.0
+SCALP_ADVERSE_TICK_PCT      = 0.0015
+SCALP_MIN_B2C               = 1.5
+SCALP_CVD_DIVERGENCE_MAX    = 0.5
+
+# Phase 8: Ignition (Velocity) Settings
+IGNITION_VELOCITY_THRESH    = 0.25
+IGNITION_PROB_THRESH        = 0.40
+
 # Phase 3: Structural Multiplier
 STRUCTURAL_WINDOW        = 50
 STRUCTURAL_THRESHOLD     = 0.85
