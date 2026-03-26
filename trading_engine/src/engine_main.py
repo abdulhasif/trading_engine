@@ -23,17 +23,17 @@ from datetime import datetime
 
 from trading_engine import config
 from trading_core.core.risk.risk_fortress import RiskFortress
-from trading_engine.src.tick_provider import TickProvider
+from trading_engine.src.data.tick_provider import TickProvider
 from trading_core.core.risk.execution_guard import LiveExecutionGuard, SyncPendingOrderGuard
-from trading_engine.src.upstox_simulator import UpstoxSimulator
-from trading_engine.src.daily_logger import log_brick_event
+from trading_engine.src.execution.upstox_simulator import UpstoxSimulator
+from trading_engine.src.core.daily_logger import log_brick_event
 
 # Modular Imports
-from trading_engine.src.inference_engine import InferenceEngine
-from trading_engine.src.strategy_manager import StrategyManager
-from trading_engine.src.execution_manager import ExecutionManager
-from trading_engine.src.physics_manager import PhysicsManager
-from trading_engine.src.state_manager import write_live_state, is_trading_active
+from trading_engine.src.models.inference_engine import InferenceEngine
+from trading_engine.src.strategy.strategy_manager import StrategyManager
+from trading_engine.src.execution.execution_manager import ExecutionManager
+from trading_engine.src.core.physics_manager import PhysicsManager
+from trading_engine.src.utils.state_manager import write_live_state, is_trading_active
 
 logging.basicConfig(
     level=logging.INFO,
