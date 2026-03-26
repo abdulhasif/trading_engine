@@ -50,12 +50,23 @@ SHORT_ENTRY_PROB_THRESH  = 0.60 # [SHARED: Pipeline, Core]
 RAW_LONG_ENTRY_PROB_THRESH  = 0.72 # [SHARED: Pipeline, Core]
 RAW_SHORT_ENTRY_PROB_THRESH = 0.72 # [SHARED: Pipeline, Core]
 ENTRY_CONV_THRESH        = 0.40 # [SHARED: Pipeline, Core]
+STRONG_CONVICTION_THRESH = 1.0
+BIAS_ENTRY_THRESHOLD     = 0.65
+VETO_BYPASS_CONV         = 4.0
 
 ENTRY_RS_THRESHOLD     = -0.5 # [SHARED: Pipeline, Core]
+MAX_VWAP_ZSCORE        = 3.0
 MAX_ENTRY_WICK         = 0.50 # [SHARED: Pipeline, Core]
 MIN_PRICE_FILTER       = 100.0 # [SHARED: Pipeline, Core]
 MIN_CONSECUTIVE_BRICKS = 1 # [SHARED: Pipeline, Core]
 MIN_BRICKS_TODAY       = 0 # [SHARED: Pipeline]
+STREAK_LIMIT           = 7
+BRICK_COOLDOWN         = 3
+
+# Phase 3: Structural Multiplier
+STRUCTURAL_WINDOW        = 50
+STRUCTURAL_THRESHOLD     = 0.85
+STRUCTURAL_PROB_BUMP     = 0.10
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. CORE PHYSICS & RISK
@@ -68,13 +79,27 @@ STRUCTURAL_REVERSAL_BRICKS = 6 # [SHARED: Pipeline, Core]
 SOFT_VETO_THRESHOLD       = 0.9 # [SHARED: Pipeline, Core]
 FEATURE_COLS = ["velocity", "momentum_acceleration", "feature_tib_zscore", "vwap_zscore", "feature_vpb_roc", "feature_cvd_divergence", "vpt_acceleration", "relative_strength", "fracdiff_price", "wick_pressure", "hurst", "consecutive_same_dir", "streak_exhaustion", "true_gap_pct", "regime_morning", "regime_midday", "regime_afternoon"] # [SHARED: Pipeline, Core]
 
+# Physics Math Extensions
+VELOCITY_MIN_DURATION      = 1.0
+VELOCITY_LONG_MIN_DURATION = 15.0
+MIN_BRICK_DURATION         = 15.0
+MAX_BRICK_DURATION_SECONDS = 300
+RS_SMOOTHING_WINDOW        = 15
+WICK_REJECTION_THRESHOLD   = 0.6
+VPT_ACCEL_LAG              = 2
+FRACDIFF_WARMUP_BRICKS     = 30
+FRACDIFF_THRESHOLD         = 1e-4
+HURST_THRESHOLD            = 0.45
+TREND_THRESHOLD            = 0.45
+FEATURE_INCREMENTAL_ENABLED = True
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. RISK MANAGEMENT & LATENCY
 # ─────────────────────────────────────────────────────────────────────────────
 STARTING_CAPITAL      = 20000 # [SHARED: Pipeline]
 INTRADAY_LEVERAGE     = 5 # [SHARED: Pipeline]
 POSITION_SIZE_PCT     = 0.10 # [SHARED: Pipeline]
-STATE_WRITE_INTERVAL  = 0.5
+STATE_WRITE_INTERVAL  = 1.0
 CIRCUIT_BREAKER_STALE_SEC = 30.0
 TARGET_CLIPPING_BPS      = 250.0
 
@@ -95,6 +120,7 @@ T1_SLIPPAGE_PCT      = 0.0005 # [SHARED: Pipeline]
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. UI & DASHBOARD (Inherited from base for now, can be overridden)
 # ─────────────────────────────────────────────────────────────────────────────
+DASHBOARD_REFRESH_SEC = 30
 REGIME_WINDOW         = 40 # [SHARED: API]
 
 def to_naive_ist(ts):
