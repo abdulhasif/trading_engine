@@ -194,6 +194,10 @@ def run_live_engine():
                 # Phase 5: Get the auto-calibrated conviction threshold for this symbol + direction
                 dyn_conv = exec_guard.dyn_thresh.get_dynamic_threshold(sym, signal_str) if signal_str != "FLAT" else None
 
+                # Phase 3: The River — Structural Trend Calculator
+                from trading_core.core.risk.execution_guard import calculate_river_state
+                river_wr, river_pb = calculate_river_state(exec_guard.buffers[sym]._buffer, signal_str) if signal_str != "FLAT" else (0.0, False)
+
                 # Strategy Gating
                 portfolio_size = len(execution.simulator.active_trades)
                 stock_losses = sum(1 for tr in execution.simulator.trade_history if tr.symbol == sym and tr.net_pnl < 0)
@@ -201,7 +205,9 @@ def run_live_engine():
                 gate_pass, gate_reason, gate_audit, sig = strategy.evaluate_entry(
                     sym, st.sector, signal_str, b1p, b2c, latest_row, st, 
                     sector_dirs.get(st.sector, 0), portfolio_size, stock_losses, now,
-                    dynamic_conv_thresh=dyn_conv  # Phase 5
+                    dynamic_conv_thresh=dyn_conv,
+                    river_win_ratio=river_wr,               # Phase 3
+                    river_pullback_cleared=river_pb          # Phase 3
                 )
                 
                 # Position Sizing

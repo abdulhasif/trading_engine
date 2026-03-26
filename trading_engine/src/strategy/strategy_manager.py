@@ -17,10 +17,11 @@ class StrategyManager:
         self.risk = risk_fortress
         self.last_entry_minutes = {}
 
-    def evaluate_entry(self, symbol, sector, signal_str, b1p, b2c, latest_row_dict, st, sector_dir, portfolio_size, stock_losses, now, dynamic_conv_thresh=None):
+    def evaluate_entry(self, symbol, sector, signal_str, b1p, b2c, latest_row_dict, st, sector_dir, portfolio_size, stock_losses, now, dynamic_conv_thresh=None, river_win_ratio=0.0, river_pullback_cleared=False):
         """
         Combined logic for gates and signal building.
-        Phase 5: Accepts optional dynamic_conv_thresh from DynamicThresholdTracker.
+        Phase 5: dynamic_conv_thresh from DynamicThresholdTracker.
+        Phase 3: river_win_ratio + river_pullback_cleared from The River.
         """
         rel_str_val = float(latest_row_dict.get("relative_strength", 0))
         score = self.risk.score_signal(b1p, b2c, (1 if signal_str == "LONG" else -1), sector_dir)
@@ -64,8 +65,13 @@ class StrategyManager:
             portfolio_size = portfolio_size,
             is_already_in_position = False,
             structural_score = float(latest_row_dict.get("structural_score", 0.0)),
-            dynamic_conv_thresh = dynamic_conv_thresh  # Phase 5
+            dynamic_conv_thresh = dynamic_conv_thresh,
+            river_win_ratio = river_win_ratio,               # Phase 3
+            river_pullback_cleared = river_pullback_cleared   # Phase 3
         )
+
+        # Phase 3: Propagate trade_type from gate audit into signal dict
+        sig["trade_type"] = gate_audit.get("trade_type", "NORMAL")
 
         return gate_pass, gate_reason, gate_audit, sig
 
