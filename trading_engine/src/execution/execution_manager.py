@@ -7,7 +7,7 @@ STRICT LOGIC PRESERVATION from engine_main.py.
 
 import logging
 from datetime import datetime
-from trading_engine import config
+from trading_core.core.config import base_config as config
 
 logger = logging.getLogger(__name__)
 

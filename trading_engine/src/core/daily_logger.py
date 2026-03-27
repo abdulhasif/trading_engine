@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from trading_engine import config
+from trading_core.core.config import base_config as config
 
 logger = logging.getLogger(__name__)
 

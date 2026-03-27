@@ -10,7 +10,7 @@ import numpy as np
 import xgboost as xgb
 import keras
 import torch
-from trading_engine import config
+from trading_core.core.config import base_config as config
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,8 @@ class InferenceEngine:
         feat_3d   = np.array([scaled_2d], dtype=np.float32)
         
         # Dual Brain Inference: LONG and SHORT
-        p_long  = float(self.brain1_long.predict(feat_3d, verbose=0)[0])
-        p_short = float(self.brain1_short.predict(feat_3d, verbose=0)[0])
+        p_long  = float(self.brain1_long.predict(feat_3d, verbose=0)[0][0])
+        p_short = float(self.brain1_short.predict(feat_3d, verbose=0)[0][0])
         
         return p_long, p_short
 
@@ -65,5 +65,6 @@ class InferenceEngine:
             else: b2_vals.append(float(latest_row_dict.get(f_name, 0)))
         
         dm_meta = xgb.DMatrix([b2_vals], feature_names=config.BRAIN2_FEATURES)
-        b2c = float(np.clip(self.brain2.predict(dm_meta)[0], 0, config.TARGET_CLIPPING_BPS))
+        b2_pred = self.brain2.predict(dm_meta)
+        b2c = float(np.clip(b2_pred[0], 0, config.TARGET_CLIPPING_BPS))
         return b2c

@@ -8,7 +8,7 @@ STRICT LOGIC PRESERVATION from engine_main.py.
 import json
 import logging
 from datetime import datetime
-from trading_engine import config
+from trading_core.core.config import base_config as config
 from trading_api.src.services.market_service import compute_market_regime
 from trading_api.src.services.news_service import get_sentiment_feed as _get_sentiment_feed
 

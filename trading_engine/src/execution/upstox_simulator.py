@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import pandas as pd
 
-from trading_engine import config
+from trading_core.core.config import base_config as config
 
 logger = logging.getLogger(__name__)
 

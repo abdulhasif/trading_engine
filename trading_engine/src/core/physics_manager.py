@@ -8,7 +8,7 @@ STRICT LOGIC PRESERVATION from engine_main.py.
 import logging
 import pandas as pd
 from datetime import datetime
-from trading_engine import config
+from trading_core.core.config import base_config as config
 from trading_core.core.physics.renko import LiveRenkoState
 
 logger = logging.getLogger(__name__)

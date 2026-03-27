@@ -7,7 +7,7 @@ STRICT LOGIC PRESERVATION from engine_main.py and strategy.py.
 
 import logging
 from datetime import datetime
-from trading_engine import config
+from trading_core.core.config import base_config as config
 from trading_core.core.risk.strategy import check_entry_gates, check_exit_conditions
 
 logger = logging.getLogger(__name__)
@@ -17,12 +17,17 @@ class StrategyManager:
         self.risk = risk_fortress
         self.last_entry_minutes = {}
 
-    def evaluate_entry(self, symbol, sector, signal_str, b1p, b2c, latest_row_dict, st, sector_dir, portfolio_size, stock_losses, now, dynamic_conv_thresh=None, river_win_ratio=0.0, river_pullback_cleared=False):
+    def evaluate_entry(self, symbol, sector, signal_str, b1p, b2c, latest_row_dict, st, 
+                       sector_dir, portfolio_size, stock_losses, now, 
+                       dynamic_conv_thresh=None, river_win_ratio=0.0, 
+                       river_pullback_cleared=False, volume_intensity=0.0, 
+                       cvd_divergence=0.0, delta_b1p=0.0):
         """
         Combined logic for gates and signal building.
         Phase 5: dynamic_conv_thresh from DynamicThresholdTracker.
         Phase 3: river_win_ratio + river_pullback_cleared from The River.
         Phase 4: volume_intensity + cvd_divergence from The Sniper.
+        Phase 8: delta_b1p from Ignition.
         """
         rel_str_val = float(latest_row_dict.get("relative_strength", 0))
         vol_intensity = float(latest_row_dict.get("volume_intensity_per_sec", 0))
@@ -71,8 +76,9 @@ class StrategyManager:
             dynamic_conv_thresh = dynamic_conv_thresh,
             river_win_ratio = river_win_ratio,               # Phase 3
             river_pullback_cleared = river_pullback_cleared, # Phase 3
-            volume_intensity = vol_intensity,                # Phase 4
-            cvd_divergence = cvd_div                         # Phase 4
+            volume_intensity = volume_intensity,             # Phase 4
+            cvd_divergence = cvd_divergence,                 # Phase 4
+            delta_b1p = delta_b1p                            # Phase 8
         )
 
         # Phase 3/4: Propagate trade_type from gate audit into signal dict
