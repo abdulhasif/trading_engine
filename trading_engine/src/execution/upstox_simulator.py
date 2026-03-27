@@ -208,6 +208,11 @@ class UpstoxSimulator:
             order.state = TradeState.REJECTED
             return order
 
+        if side.upper() not in ("BUY", "SELL", "LONG", "SHORT"):
+            logger.warning(f"Order REJECTED: Invalid side '{side}' for {symbol}.")
+            order.state = TradeState.REJECTED
+            return order
+
         if not self._lock_margin(required_margin):
             logger.warning(f"Order REJECTED: Insufficient Funds. "
                            f"Req: Rs {required_margin:,.2f} | Avail: Rs {self.available_margin:,.2f}")

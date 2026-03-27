@@ -84,6 +84,11 @@ class StrategyManager:
         # Phase 3/4: Propagate trade_type from gate audit into signal dict
         sig["trade_type"] = gate_audit.get("trade_type", "NORMAL")
 
+        # FINAL SAFETY: Never allow a FLAT signal to pass, regardless of Sniper/Ignition bypasses.
+        if signal_str == "FLAT":
+            gate_pass = False
+            gate_reason = "FLAT_SIGNAL_REJECT"
+
         return gate_pass, gate_reason, gate_audit, sig
 
     def check_exit(self, order, current_price, st, b2c, p_long, p_short, trade_type="NORMAL", vol_intensity=0.0):

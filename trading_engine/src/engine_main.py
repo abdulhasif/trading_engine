@@ -335,6 +335,7 @@ def run_live_engine():
                     brick_dir=last_brick["direction"], sec_dir=sector_dirs.get(st.sector, 0),
                     new_bricks=1, action="ENTRY" if gate_pass else "SKIP", 
                     reason=gate_reason if not gate_pass else "ALL_PASS", 
+                    signal=signal_str,
                     trade_type=sig.get("trade_type", "NORMAL"), 
                     brain1_prob=b1p, brain2_conv=b2c, **latest_row
                 )
