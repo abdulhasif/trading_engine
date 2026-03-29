@@ -48,6 +48,10 @@ class SimulatedOrder:
     # Active State Stats
     filled_at:      Optional[datetime] = None
     last_price:     float      = 0.0
+    favorable_bricks: float    = 0.0    # V3: Peak profit (HWM) bricks reached
+    hwm_pullback:   float      = 0.0    # V3: Distance from HWM
+    adverse_streak: float      = 0.0    # V3: Consecutive adverse bricks
+    bricks_held:    int        = 0      # V3: Current brick duration
 
     # Closed State Stats
     closed_at:      Optional[datetime] = None

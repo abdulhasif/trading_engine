@@ -97,7 +97,7 @@ def log_brick_event(
     global_pause: bool = False,
     ticker_paused: bool = False,
     bias: str = "",
-    eff_prob_thresh: float = 0.75,
+    eff_prob_thresh: float = 0.55, # Default fallback
     gate_prob: str = "SKIP",
     gate_conv: str = "SKIP",
     gate_rs: str = "SKIP",

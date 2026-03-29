@@ -25,14 +25,15 @@ class InferenceEngine:
     def load_models(self):
         """
         STRICT: Verbatim from engine_main.py + Phase 3: Calibrated Loader.
-        Attempts to load calibrated Isotonic wrappers first. Falls back to raw Keras.
+        Attempts to load calibrated Isotonic wrappers only if enabled in config.
         """
         from trading_core.core.physics.quant_fixes import IsotonicCalibrationWrapper
         import joblib
 
         # 1. Load Brain 1 (Directional)
         try:
-            if config.BRAIN1_CALIBRATED_LONG_PATH.exists():
+            # ONLY load calibrated if toggle is ON
+            if config.USE_CALIBRATED_MODELS and config.BRAIN1_CALIBRATED_LONG_PATH.exists():
                 self.brain1_long = IsotonicCalibrationWrapper.load(config.BRAIN1_CALIBRATED_LONG_PATH)
                 logger.info("Loaded CALIBRATED Brain1 LONG model.")
             else:
@@ -43,7 +44,7 @@ class InferenceEngine:
             self.brain1_long = keras.models.load_model(str(config.BRAIN1_CNN_LONG_PATH))
 
         try:
-            if config.BRAIN1_CALIBRATED_SHORT_PATH.exists():
+            if config.USE_CALIBRATED_MODELS and config.BRAIN1_CALIBRATED_SHORT_PATH.exists():
                 self.brain1_short = IsotonicCalibrationWrapper.load(config.BRAIN1_CALIBRATED_SHORT_PATH)
                 logger.info("Loaded CALIBRATED Brain1 SHORT model.")
             else:

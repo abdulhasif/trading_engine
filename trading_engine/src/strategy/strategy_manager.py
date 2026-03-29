@@ -78,7 +78,8 @@ class StrategyManager:
             river_pullback_cleared = river_pullback_cleared, # Phase 3
             volume_intensity = volume_intensity,             # Phase 4
             cvd_divergence = cvd_divergence,                 # Phase 4
-            delta_b1p = delta_b1p                            # Phase 8
+            delta_b1p = delta_b1p,                           # Phase 8
+            brick_oscillation_rate = float(latest_row_dict.get("brick_oscillation_rate", 0.0)) # V3
         )
 
         # Phase 3/4: Propagate trade_type from gate audit into signal dict
@@ -92,10 +93,49 @@ class StrategyManager:
         return gate_pass, gate_reason, gate_audit, sig
 
     def check_exit(self, order, current_price, st, b2c, p_long, p_short, trade_type="NORMAL", vol_intensity=0.0):
-        """Phase 4: Accepts trade_type and volume_intensity for sniper exits."""
+        """Phase 4: Accepts trade_type and volume_intensity. V3: Trailing state."""
+        # Update V3 Trailing Profit state (High Water Mark) + Hold duration
+        dist_from_entry = (current_price - order.entry_price) if order.side in ("BUY", "LONG") \
+                          else (order.entry_price - current_price)
+        bricks_profit = dist_from_entry / st.brick_size
+        
+        # Track HWM (Peak Profit)
+        if not hasattr(order, "favorable_bricks"):
+            order.favorable_bricks = 0.0
+        order.favorable_bricks = max(order.favorable_bricks, bricks_profit)
+        
+        # Track Adverse Streak (Consecutive bricks against us)
+        if not hasattr(order, "adverse_streak"):
+            order.adverse_streak = 0.0
+        
+        # Streak Reset Logic (V3 Sync - Side-Agnostic):
+        # bricks_profit is already calculated as (entry - current) for SHORTS
+        # and (current - entry) for LONGS. Positive means we are winning.
+        is_favorable_brick = (bricks_profit > 0)
+        
+        if is_favorable_brick:
+            order.adverse_streak = 0.0
+        else:
+            order.adverse_streak += 1.0
+
+        # Track Hold Duration
+        if not hasattr(order, "bricks_held"):
+            order.bricks_held = 0
+        order.bricks_held += 1
+        
+        # Pullback from HWM
+        hwm_pullback = order.favorable_bricks - bricks_profit
+
         return check_exit_conditions(
             order.side, order.entry_price, current_price, st.brick_size, 
-            b2c, p_long, p_short, trade_type, vol_intensity
+            b2c, p_long, p_short, 
+            bricks_held=order.bricks_held,
+            trade_type=trade_type, 
+            volume_intensity=vol_intensity,
+            favorable_bricks=order.favorable_bricks,
+            hwm_pullback=max(0.0, hwm_pullback),
+            adverse_streak=order.adverse_streak,
+            wick_p=float(st.bricks[-1].get("wick_pressure", 0.0)) if st.bricks else 0.0
         )
 
     def _passes_soft_veto(self, signal, rel_strength):
