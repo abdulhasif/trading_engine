@@ -27,6 +27,7 @@ from trading_engine.src.data.tick_provider import TickProvider
 from trading_core.core.risk.execution_guard import LiveExecutionGuard, SyncPendingOrderGuard
 from trading_engine.src.execution.upstox_simulator import UpstoxSimulator
 from trading_engine.src.core.daily_logger import log_brick_event
+from trading_core.core.features import compute_features_live
 
 # Modular Imports
 from trading_engine.src.models.inference_engine import InferenceEngine
@@ -184,7 +185,7 @@ def run_live_engine():
                 thresh_s = config.SHORT_ENTRY_PROB_THRESH if config.USE_CALIBRATED_MODELS else config.RAW_SHORT_ENTRY_PROB_THRESH
 
                 if p_long >= thresh_l and p_long >= p_short: signal_str = "LONG"
-                elif p_short >= thresh_s: signal_str = "SHORT"
+                elif not config.LONG_ONLY_MODE and p_short >= thresh_s: signal_str = "SHORT"
 
                 b2c = inference.predict_brain2(p_long, p_short, b1d, latest_row)
 
