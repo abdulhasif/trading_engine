@@ -7,6 +7,7 @@ STRICT LOGIC PRESERVATION from engine_main.py.
 
 import logging
 import numpy as np
+import pandas as pd
 import xgboost as xgb
 import keras
 import torch
@@ -98,13 +99,29 @@ class InferenceEngine:
     def predict_brain2(self, p_long, p_short, b1d, latest_row_dict):
         """
         STRICT: Brain 2 feature matrix construction and prediction.
+        PhD Audit Fix: Technical features MUST be scaled for parity with the backtester.
         """
+        # 1. Scale technical features from latest_row_dict
+        # latest_row_dict contains raw technical indicators (e.g. relative_strength=20.0)
+        # We need a 2D DataFrame for the scaler
+        raw_tech_df = pd.DataFrame([latest_row_dict])[self.EXPECTED_FEATURES].fillna(0)
+        scaled_tech_vals = self.scaler.transform(raw_tech_df)[0]
+        scaled_tech_map = dict(zip(self.EXPECTED_FEATURES, scaled_tech_vals))
+
         b2_vals = []
         for f_name in config.BRAIN2_FEATURES:
-            if f_name == "brain1_prob_long": b2_vals.append(p_long)
-            elif f_name == "brain1_prob_short": b2_vals.append(p_short)
-            elif f_name == "trade_direction": b2_vals.append(float(b1d))
-            else: b2_vals.append(float(latest_row_dict.get(f_name, 0)))
+            if f_name == "brain1_prob_long": 
+                b2_vals.append(p_long)
+            elif f_name == "brain1_prob_short": 
+                b2_vals.append(p_short)
+            elif f_name == "trade_direction": 
+                b2_vals.append(float(b1d))
+            elif f_name in self.EXPECTED_FEATURES:
+                # Use the SCALED version of the technical indicator
+                b2_vals.append(float(scaled_tech_map[f_name]))
+            else: 
+                # Meta-features that aren't technical indicators (e.g. true_gap_pct)
+                b2_vals.append(float(latest_row_dict.get(f_name, 0)))
         
         dm_meta = xgb.DMatrix([b2_vals], feature_names=config.BRAIN2_FEATURES)
         b2_pred = self.brain2.predict(dm_meta)

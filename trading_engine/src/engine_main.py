@@ -23,6 +23,9 @@ if sys.version_info < (3, 12) or sys.version_info >= (3, 13):
 
 import os
 os.environ["KERAS_BACKEND"] = "torch"
+# Force CPU inference to avoid intermittent CUDA runtime faults in live loop.
+# Must be set before importing model stacks that initialize Torch/Keras.
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import time
 import logging
 import pandas as pd
@@ -141,6 +144,7 @@ def run_live_engine():
         while True:
             t0 = time.time()
             now = datetime.now()
+            now_ts = time.time()
 
             # Shutdown check
             if now.hour > config.SYSTEM_SHUTDOWN_HOUR or \
@@ -293,8 +297,8 @@ def run_live_engine():
                         new_bricks=1, action="SKIP", reason="MORNING_LOCK", **latest_row
                     )
                     if now_ts - last_lock_log > 300.0: # Log to console every 5 mins
-                         logger.info(f"MORNING LOCK: Skipping {sym} (Market stabilizing until 09:30)")
-                         last_lock_log = now_ts
+                        logger.info(f"MORNING LOCK: Skipping {sym} (Market stabilizing until 09:30)")
+                        last_lock_log = now_ts
                     continue
 
                 # Stop new entries after the "No New Entry" threshold
