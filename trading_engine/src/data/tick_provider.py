@@ -23,7 +23,7 @@ from typing import Optional, List, Dict
 from collections import deque
 import pandas as pd
 
-from trading_engine import config
+from trading_core.core.config import base_config as config
 
 logger = logging.getLogger(__name__)
 

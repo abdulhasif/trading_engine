@@ -28,7 +28,7 @@ import logging
 import pandas as pd
 from datetime import datetime
 
-from trading_engine import config
+from trading_core.core.config import base_config as config
 from trading_core.core.risk.risk_fortress import RiskFortress
 from trading_engine.src.data.tick_provider import TickProvider
 from trading_core.core.risk.execution_guard import LiveExecutionGuard, SyncPendingOrderGuard
@@ -92,6 +92,7 @@ def run_live_engine():
     )
     
     physics = PhysicsManager(universe, exec_guard)
+    exec_guard.warm_up_all() # Load historical bricks into buffers BEFORE initializing states
 
     # -- Phase 2: CONNECTIVITY_CHECK (Default 09:00) -------------------------
     ct = datetime.now().replace(hour=config.CONNECTIVITY_CHECK_HOUR, minute=config.CONNECTIVITY_CHECK_MINUTE, second=0, microsecond=0)
@@ -100,7 +101,10 @@ def run_live_engine():
         logger.info(f"INITIALIZED. Sleeping {sleep_sec:.0f}s until {config.CONNECTIVITY_CHECK_HOUR:02d}:{config.CONNECTIVITY_CHECK_MINUTE:02d} AM Connectivity Check...")
         time.sleep(sleep_sec)
     
-    logger.info("CONNECTIVITY CHECK: Starting TickProvider WebSocket...")
+    logger.info("CONNECTIVITY CHECK: Priming Renko physics & starting WebSocket...")
+    physics.warmup_brick_sizes()
+    physics.initialize_states(stocks, indices)
+    
     tick_provider = TickProvider(list(physics.renko_states.keys()) + list(physics.sector_renko.keys()))
     tick_provider.connect()
 
@@ -111,9 +115,7 @@ def run_live_engine():
         logger.info(f"CONNECTING. Sleeping {sleep_sec:.0f}s until {config.WARMUP_HOUR:02d}:{config.WARMUP_MINUTE:02d} AM Warmup...")
         time.sleep(sleep_sec)
     
-    logger.info("WARMUP: Priming Renko physics and risk buffers...")
-    physics.warmup_brick_sizes()
-    physics.initialize_states(stocks, indices)
+    logger.info("WARMUP: Priming risk buffers...")
     exec_guard.warm_up_all()
 
     # -- Phase 4: MARKET_OPEN (Default 09:15) ---------------------------------
@@ -127,6 +129,8 @@ def run_live_engine():
     # TickProvider moved to Connectivity Check phase
 
     last_write = 0.0
+    last_heartbeat = 0.0
+    last_lock_log = 0.0
     _already_squared_off = False
     sector_index_map = {r["sector"]: r["symbol"] for _, r in indices.iterrows()}
     
@@ -188,7 +192,16 @@ def run_live_engine():
                 execution.update_active_price(sym, t["ltp"])
                 brick_formed = physics.process_stock_tick(sym, t, now)
                 if not brick_formed: continue
-                if len(st.bricks) < config.CNN_WINDOW_SIZE: continue
+
+                # ALWAYS log every brick formed, even during WARMUP
+                if len(st.bricks) < config.CNN_WINDOW_SIZE:
+                    last_brick = st.bricks[-1]
+                    log_brick_event(
+                        ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]),
+                        brick_dir=last_brick["direction"], sec_dir=sector_dirs.get(st.sector, 0),
+                        new_bricks=1, action="SKIP", reason="WARMUP"
+                    )
+                    continue
 
                 # ── Step 1: EXIT FIRST ────────────────────────────────────
                 # If symbol has an active position, evaluate exit BEFORE
@@ -224,7 +237,13 @@ def run_live_engine():
                         exec_guard.entry_lock.confirm_exit(sym)
                         exec_guard.cooldown.record_exit(sym, exec_guard.buffers[sym]._total_bricks_seen)
                         logger.info(f"[Router] EXIT {sym} @ {float(t['ltp']):.2f} | type={t_type} | reason={exit_reason}")
-                        log_brick_event(ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]), action="EXIT", reason=exit_reason, trade_type=t_type, **latest_row)
+                        last_brick = st.bricks[-1]
+                        log_brick_event(
+                            ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]),
+                            brick_dir=last_brick["direction"], sec_dir=sector_dirs.get(st.sector, 0), 
+                            new_bricks=1, action="EXIT", reason=exit_reason, 
+                            trade_type=t_type, **latest_row
+                        )
                     continue  # Skip entry evaluation for active positions
 
                 # ── Step 2-6: ENTRY EVALUATION (no active position) ───────
@@ -263,7 +282,33 @@ def run_live_engine():
                 # ── Step 5: THE RIVER (Structural Trend) ──────────────────
                 river_wr, river_pb = calculate_river_state(exec_guard.buffers[sym]._buffer, signal_str) if signal_str != "FLAT" else (0.0, False)
 
-                # ── Step 6: STANDARD GATES (12-Gate Check) ────────────────
+                # ── Step 6: LIFECYCLE GATES ──────────────────────────────
+                # Skip if within the morning "Wait for Range" lock period
+                minutes_since_open = (now.hour - config.MARKET_OPEN_HOUR) * 60 + (now.minute - config.MARKET_OPEN_MINUTE)
+                if minutes_since_open < config.ENTRY_LOCK_MINUTES:
+                    last_brick = st.bricks[-1]
+                    log_brick_event(
+                        ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]),
+                        brick_dir=last_brick["direction"], sec_dir=sector_dirs.get(st.sector, 0),
+                        new_bricks=1, action="SKIP", reason="MORNING_LOCK", **latest_row
+                    )
+                    if now_ts - last_lock_log > 300.0: # Log to console every 5 mins
+                         logger.info(f"MORNING LOCK: Skipping {sym} (Market stabilizing until 09:30)")
+                         last_lock_log = now_ts
+                    continue
+
+                # Stop new entries after the "No New Entry" threshold
+                if now.hour > config.NO_NEW_ENTRY_HOUR or \
+                   (now.hour == config.NO_NEW_ENTRY_HOUR and now.minute >= config.NO_NEW_ENTRY_MIN):
+                    last_brick = st.bricks[-1]
+                    log_brick_event(
+                        ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]),
+                        brick_dir=last_brick["direction"], sec_dir=sector_dirs.get(st.sector, 0),
+                        new_bricks=1, action="SKIP", reason="TIME_CUTOFF", **latest_row
+                    )
+                    continue
+
+                # ── Step 7: STANDARD GATES (12-Gate Check) ────────────────
                 portfolio_size = len(execution.simulator.active_trades)
                 stock_losses = sum(1 for tr in execution.simulator.trade_history if tr.symbol == sym and tr.net_pnl < 0)
 
@@ -284,7 +329,16 @@ def run_live_engine():
                 all_signals.append(sig)
 
                 # Log entry attempt
-                log_brick_event(ts=now, symbol=sym, sector=st.sector, action="ENTRY" if gate_pass else "SKIP", reason=gate_reason if not gate_pass else "ALL_PASS", trade_type=sig.get("trade_type", "NORMAL"), **latest_row)
+                last_brick = st.bricks[-1]
+                log_brick_event(
+                    ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]),
+                    brick_dir=last_brick["direction"], sec_dir=sector_dirs.get(st.sector, 0),
+                    new_bricks=1, action="ENTRY" if gate_pass else "SKIP", 
+                    reason=gate_reason if not gate_pass else "ALL_PASS", 
+                    signal=signal_str,
+                    trade_type=sig.get("trade_type", "NORMAL"), 
+                    brain1_prob=b1p, brain2_conv=b2c, **latest_row
+                )
 
                 if gate_pass and not strategy.check_duplicate_minute(sym, now):
                     executable_signals.append(sig)
@@ -314,6 +368,13 @@ def run_live_engine():
             if (time.time() - last_write) >= config.STATE_WRITE_INTERVAL:
                 write_live_state(top, physics.renko_states, risk_fortress, latency, execution)
                 last_write = time.time()
+
+            # --- HEARTBEAT (Phase 5 Visibility) ---
+            if (time.time() - last_heartbeat) > 60.0:
+                mins_open = (now.hour - config.MARKET_OPEN_HOUR) * 60 + (now.minute - config.MARKET_OPEN_MINUTE)
+                status = "LOCKED" if mins_open < config.ENTRY_LOCK_MINUTES else "ACTIVE"
+                logger.info(f"[Heartbeat] {now.strftime('%H:%M:%S')} | Ticks: {len(ticks)} | Latency: {latency:.2f}ms | Mode: {status}")
+                last_heartbeat = time.time()
 
             time.sleep(max(0.001, 0.01 - (time.time() - t0)))
 

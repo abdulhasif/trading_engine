@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import pandas as pd
 
-from trading_engine import config
+from trading_core.core.config import base_config as config
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +205,11 @@ class UpstoxSimulator:
 
         if symbol in self.active_trades or symbol in self.pending_orders:
             logger.warning(f"Order REJECTED: {symbol} already has an active/pending position.")
+            order.state = TradeState.REJECTED
+            return order
+
+        if side.upper() not in ("BUY", "SELL", "LONG", "SHORT"):
+            logger.warning(f"Order REJECTED: Invalid side '{side}' for {symbol}.")
             order.state = TradeState.REJECTED
             return order
 

@@ -13,7 +13,7 @@ import keras
 import logging
 from pathlib import Path
 
-from trading_engine import config
+from trading_core.core.config import base_config as config
 from trading_core.core.features import compute_features_live
 
 logger = logging.getLogger(__name__)

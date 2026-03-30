@@ -4,7 +4,7 @@ sys.path.insert(0, ".")
 
 print("Testing new TickProvider...")
 from trading_engine.src.tick_provider import TickProvider
-import config
+from trading_core.core.config import base_config as config
 
 print(f"Access token set: {bool(config.UPSTOX_ACCESS_TOKEN)}")
 
