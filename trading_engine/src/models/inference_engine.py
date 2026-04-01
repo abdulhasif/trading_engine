@@ -69,7 +69,8 @@ class InferenceEngine:
         feat_3d   = np.array([scaled_2d], dtype=np.float32)
         
         # LONG prediction
-        p_long = float(self.brain1_long.predict(feat_3d, verbose=0)[0])
+        pred_long = self.brain1_long.predict(feat_3d, verbose=0)
+        p_long = float(np.ravel(pred_long)[0])
         if self.calibrator_long:
             p_long = self.calibrator_long.predict_single(p_long)
         
@@ -77,7 +78,8 @@ class InferenceEngine:
         if config.LONG_ONLY_MODE or self.brain1_short is None:
             p_short = 0.0
         else:
-            p_short = float(self.brain1_short.predict(feat_3d, verbose=0)[0])
+            pred_short = self.brain1_short.predict(feat_3d, verbose=0)
+            p_short = float(np.ravel(pred_short)[0])
             if self.calibrator_short:
                 p_short = self.calibrator_short.predict_single(p_short)
         

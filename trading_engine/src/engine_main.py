@@ -25,6 +25,7 @@ from trading_engine import config
 from trading_core.core.risk.risk_fortress import RiskFortress
 from trading_engine.src.data.tick_provider import TickProvider
 from trading_core.core.risk.execution_guard import LiveExecutionGuard, SyncPendingOrderGuard
+from trading_core.core.risk.strategy import check_exit_conditions
 from trading_engine.src.execution.upstox_simulator import UpstoxSimulator
 from trading_engine.src.core.daily_logger import log_brick_event
 from trading_core.core.features import compute_features_live
@@ -129,7 +130,7 @@ def run_live_engine():
                 _already_squared_off = True
 
             # Global Kill
-            from trading_engine.src.control_state import CONTROL_STATE
+            from trading_engine.src.core.control_state import CONTROL_STATE
             if CONTROL_STATE.get("GLOBAL_KILL", False):
                 logger.critical("GLOBAL_KILL ACTIVE. Forcing close of all positions immediately.")
                 execution.square_off_all(now)
@@ -175,6 +176,12 @@ def run_live_engine():
                 bdf = compute_features_live(exec_guard.buffers[sym].to_dataframe(), sec_bdf)
                 latest_row = bdf.iloc[-1].to_dict()
 
+                # Inject live exchange data from Upstox full feed
+                latest_row["atp"] = t.get("atp", 0.0)
+                latest_row["oi"] = t.get("oi", 0.0)
+                latest_row["vtt"] = t.get("vtt", 0)
+                latest_row["depth_imbalance"] = t.get("depth_imbalance", 0.0)
+
                 # Inference
                 p_long, p_short = inference.predict_brain1(bdf)
                 signal_str = "FLAT"
@@ -206,15 +213,37 @@ def run_live_engine():
                 # -- EXIT GATES --
                 if sym in execution.simulator.active_trades:
                     order = execution.simulator.active_trades[sym]
-                    exit_reason = check_exit_conditions(order.side, order.entry_price, float(t["ltp"]), st.brick_size, b2c, p_long, p_short)
+                    exit_reason = strategy.evaluate_exit(
+                        order=order,
+                        current_price=float(t["ltp"]),
+                        brick_size=st.brick_size,
+                        b2c=b2c,
+                        p_long=p_long,
+                        p_short=p_short,
+                        latest_row_dict=latest_row
+                    )
                     if exit_reason:
                         execution.close_position(sym, float(t["ltp"]), now, exit_reason)
                         logger.info(f"[Engine->Sim] EXIT {sym} @ {float(t['ltp']):.2f} | reason={exit_reason}")
-                        log_brick_event(ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]), action="EXIT", reason=exit_reason, **latest_row)
+                        log_brick_event(
+                            ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]),
+                            brick_dir=st.bricks[-1]["direction"] if st.bricks else 0,
+                            sec_dir=sector_dirs.get(st.sector, 0), new_bricks=1,
+                            brain1_prob=b1p, brain2_conv=b2c, signal=signal_str,
+                            action="EXIT", reason=exit_reason, **latest_row
+                        )
                     continue
 
                 # -- ENTRY GATES --
-                log_brick_event(ts=now, symbol=sym, sector=st.sector, action="ENTRY" if gate_pass else "SKIP", reason=gate_reason if not gate_pass else "ALL_PASS", **latest_row)
+                log_brick_event(
+                    ts=now, symbol=sym, sector=st.sector, price=float(t["ltp"]),
+                    brick_dir=st.bricks[-1]["direction"] if st.bricks else 0,
+                    sec_dir=sector_dirs.get(st.sector, 0), new_bricks=1,
+                    brain1_prob=b1p, brain2_conv=b2c, signal=signal_str,
+                    action="ENTRY" if gate_pass else "SKIP",
+                    reason=gate_reason if not gate_pass else "ALL_PASS", 
+                    **gate_audit, **latest_row
+                )
 
                 if gate_pass and not strategy.check_duplicate_minute(sym, now):
                     executable_signals.append(sig)

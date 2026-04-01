@@ -239,11 +239,11 @@ class TickProvider:
                         f"{len(instrument_keys)} instruments... "
                         f"(attempt #{self._reconnect_attempt + 1})")
 
-            # Create streamer with LTPC mode (lightest: last price + close)
+            # Create streamer with FULL mode (ATP, OI, Market Depth, Volume)
             self._streamer = MarketDataStreamerV3(
                 api_client,
                 instrumentKeys=instrument_keys,
-                mode="ltpc"
+                mode="full"
             )
 
             # Register event handlers
@@ -375,16 +375,64 @@ class TickProvider:
                     if not sym:
                         continue
 
+                    is_index = sym in self._index_symbols
+
                     # Dict-based feed (SDK v3)
                     if isinstance(feed, dict):
-                        # LTPC mode
+                        # Full-feed mode (primary path)
+                        ff = feed.get("ff") or feed.get("fullFeed")
+                        if ff:
+                            # Market stocks get marketFF, indices get indexFF
+                            mff = ff.get("marketFF", {})
+                            iff = ff.get("indexFF", {})
+                            source = mff if mff else iff
+
+                            ltpc_data = source.get("ltpc", {})
+                            ohlc_list = source.get("marketOHLC", {}).get("ohlc", [])
+                            ohlc = ohlc_list[0] if ohlc_list else {}
+
+                            ltp = float(ltpc_data.get("ltp", 0))
+                            ltq = float(ltpc_data.get("ltq", 0))
+
+                            if ltp > 0 and (ltq > 0 or is_index):
+                                # --- Exchange-native institutional data ---
+                                atp = float(mff.get("atp", 0.0))       # Official VWAP
+                                vtt = int(mff.get("vtt", 0))           # Volume Traded Today
+                                oi  = float(mff.get("oi", 0.0))       # Open Interest
+                                tbq = float(mff.get("tbq", 0.0))      # Total Bid Quantity
+                                tsq = float(mff.get("tsq", 0.0))      # Total Sell Quantity
+
+                                # Depth imbalance: ratio of total bids to total asks
+                                # > 1.0 = buy pressure, < 1.0 = sell pressure
+                                depth_imbalance = (tbq / tsq) if tsq > 0 else 1.0
+
+                                # Market depth (top 5 bid/ask levels)
+                                depth_quotes = source.get("marketLevel", {}).get("bidAskQuote", [])
+
+                                tick_data = {
+                                    "ltp": ltp,
+                                    "high": float(ohlc.get("high", ltp)),
+                                    "low": float(ohlc.get("low", ltp)),
+                                    "close": float(ltpc_data.get("cp", ltp)),
+                                    "volume": ltq,
+                                    "atp": atp,
+                                    "vtt": vtt,
+                                    "oi": oi,
+                                    "tbq": tbq,
+                                    "tsq": tsq,
+                                    "depth_imbalance": round(depth_imbalance, 4),
+                                    "timestamp": now,
+                                }
+                                self._ticks[sym] = tick_data
+                                RAW_TICK_LOGGER.log_tick(now.isoformat(), sym, ltp, ltq)
+                                count += 1
+                            continue
+
+                        # Fallback: LTPC-only mode (e.g. during degraded feed)
                         ltpc = feed.get("ltpc")
                         if ltpc:
                             ltp = float(ltpc.get("ltp", 0))
                             volume = float(ltpc.get("ltq", 0))
-                            # TRUE TRADE FILTER: Only accept ticks where a real execution occurred
-                            # OR if sym is an index (which has 0 volume)
-                            is_index = sym in self._index_symbols
                             if ltp > 0 and (volume > 0 or is_index):
                                 self._ticks[sym] = {
                                     "ltp": ltp,
@@ -392,29 +440,15 @@ class TickProvider:
                                     "low": ltp,
                                     "close": float(ltpc.get("cp", ltp)),
                                     "volume": volume,
+                                    "atp": 0.0,
+                                    "vtt": 0,
+                                    "oi": 0.0,
+                                    "tbq": 0.0,
+                                    "tsq": 0.0,
+                                    "depth_imbalance": 1.0,
                                     "timestamp": now,
                                 }
                                 RAW_TICK_LOGGER.log_tick(now.isoformat(), sym, ltp, volume)
-                                count += 1
-
-                        # Full-feed mode (if subscribed to full)
-                        ff = feed.get("ff")
-                        if ff:
-                            mff = ff.get("marketFF", {})
-                            ltpc_data = mff.get("ltpc", {})
-                            ohlc_list = mff.get("marketOHLC", {}).get("ohlc", [])
-                            ohlc = ohlc_list[0] if ohlc_list else {}
-
-                            ltp = float(ltpc_data.get("ltp", 0))
-                            if ltp > 0 and ohlc:
-                                self._ticks[sym] = {
-                                    "ltp": ltp,
-                                    "high": float(ohlc.get("high", ltp)),
-                                    "low": float(ohlc.get("low", ltp)),
-                                    "close": float(ohlc.get("close", ltp)),
-                                    "timestamp": now,
-                                }
-                                RAW_TICK_LOGGER.log_tick(now.isoformat(), sym, ltp, 0)
                                 count += 1
 
                     # Protobuf-based feed (legacy SDK)
@@ -427,6 +461,13 @@ class TickProvider:
                                 "high": ltp,
                                 "low": ltp,
                                 "close": float(ltpc.cp) if ltpc.cp else ltp,
+                                "volume": 0,
+                                "atp": 0.0,
+                                "vtt": 0,
+                                "oi": 0.0,
+                                "tbq": 0.0,
+                                "tsq": 0.0,
+                                "depth_imbalance": 1.0,
                                 "timestamp": now,
                             }
                             count += 1
